@@ -1,0 +1,32 @@
+name: 自动打包Android APK
+on:
+  push:
+    branches: [ main ]  # 推送到main分支时自动触发
+  workflow_dispatch:    # 支持手动触发打包
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: 拉取代码
+        uses: actions/checkout@v4
+
+      - name: 配置Python环境
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.10"
+
+      - name: 安装Buildozer及系统依赖
+        run: |
+          pip install buildozer
+          sudo apt-get update
+          sudo apt-get install -y git python3-pip build-essential pkg-config libssl-dev libffi-dev libncurses5-dev zlib1g-dev libltdl-dev
+
+      - name: 执行APK打包
+        run: buildozer android debug
+
+      - name: 上传APK产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: scanwang-app-apk
+          path: bin/*.apk
