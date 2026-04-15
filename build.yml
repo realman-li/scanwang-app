@@ -1,3 +1,4 @@
+.github/workflows/build.yml
 name: 打包扫描王APK
 on: push
 
