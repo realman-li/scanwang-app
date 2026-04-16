@@ -47,7 +47,7 @@ jobs:
         DISPLAY: ':99.0'
         
     - name: Upload APK artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: debug-apk
         path: bin/*.apk
