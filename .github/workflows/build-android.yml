@@ -49,14 +49,25 @@ jobs:
         echo "ANDROID_NDK_ROOT=$SDK_DIR/cmdline-tools/ndk/23.0.7599858" >> $GITHUB_ENV
         echo "PATH=$PATH:$SDK_DIR/cmdline-tools/platform-tools" >> $GITHUB_ENV
         
-    - name: Verify requirements file
+    - name: Fix and verify requirements file
       run: |
-        ls -la
+        # 尝试修复可能的文件名问题
+        if [ -f "requirements.txt:" ]; then
+          echo "Fixing filename: requirements.txt:"
+          mv "requirements.txt:" requirements.txt
+        fi
+        
+        # 验证文件是否存在
         if [ ! -f "requirements.txt" ]; then
-          echo "Error: requirements.txt not found in ${{ github.workspace }}"
+          echo "Error: requirements.txt not found in $(pwd)"
           echo "Please ensure requirements.txt is in the root of your repository"
+          ls -la
           exit 1
         fi
+        
+        # 显示文件内容以确认
+        echo "Found requirements.txt:"
+        cat requirements.txt
         
     - name: Install Python dependencies
       run: |
