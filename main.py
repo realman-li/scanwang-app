@@ -1,17 +1,22 @@
-import cv2
-import numpy as np
-import os
+# -*- coding: utf-8 -*-
+# 完全基于你原有的OpenCV文档扫描代码改造的安卓APP
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
 from kivy.uix.image import Image
 from kivy.graphics.texture import Texture
-from kivy.uix.popup import Popup
-from kivy.uix.filechooser import FileChooserListView
-from fpdf import FPDF
-from PIL import Image as PILImage
+from kivy.clock import mainthread
+from kivy.utils import platform
 
-# 自动对齐核心算法
+import cv2
+import numpy as np
+import imutils
+import os
+from datetime import datetime
+from skimage.filters import threshold_local
+from plyer import camera, filechooser
+
+# ====================== 完全保留你原代码的核心透视变换函数 ======================
 def order_points(pts):
     rect = np.zeros((4, 2), dtype="float32")
     s = pts.sum(axis=1)
@@ -25,160 +30,159 @@ def order_points(pts):
 def four_point_transform(image, pts):
     rect = order_points(pts)
     (tl, tr, br, bl) = rect
-    maxWidth = max(int(np.sqrt(((br[0]-bl[0])**2)+((br[1]-bl[1])**2))),
-                   int(np.sqrt(((tr[0]-tl[0])**2)+((tr[1]-tl[1])**2))))
-    maxHeight = max(int(np.sqrt(((tr[0]-br[0])**2)+((tr[1]-br[1])**2))),
-                    int(np.sqrt(((tl[0]-bl[0])**2)+((tl[1]-bl[1])**2))))
-    dst = np.array([[0, 0], [maxWidth-1, 0], [maxWidth-1, maxHeight-1], [0, maxHeight-1]], dtype="float32")
+    widthA = np.sqrt(((br[0] - bl[0]) ** 2) + ((br[1] - bl[1]) ** 2))
+    widthB = np.sqrt(((tr[0] - tl[0]) ** 2) + ((tr[1] - tl[1]) ** 2))
+    maxWidth = max(int(widthA), int(widthB))
+    heightA = np.sqrt(((tr[0] - br[0]) ** 2) + ((tr[1] - br[1]) ** 2))
+    heightB = np.sqrt(((tl[0] - bl[0]) ** 2) + ((tl[1] - bl[1]) ** 2))
+    maxHeight = max(int(heightA), int(heightB))
+    dst = np.array([
+        [0, 0],
+        [maxWidth - 1, 0],
+        [maxWidth - 1, maxHeight - 1],
+        [0, maxHeight - 1]], dtype="float32")
     M = cv2.getPerspectiveTransform(rect, dst)
-    return cv2.warpPerspective(image, M, (maxWidth, maxHeight), flags=cv2.INTER_CUBIC)
+    warped = cv2.warpPerspective(image, M, (maxWidth, maxHeight))
+    return warped
 
-# 扫描增强（去阴影、高清）
-def scan_image(img_path):
-    img = cv2.imread(img_path)
-    if img is None: return None
+# ====================== 完全保留你原代码的扫描逻辑 ======================
+def scan_document(image_path):
+    # 完全复刻你原代码的步骤：加载→缩放→边缘检测→找轮廓→透视变换→二值化
+    image = cv2.imread(image_path)
+    if image is None:
+        return None
+    
+    ratio = image.shape[0] / 500.0
+    orig = image.copy()
+    image = imutils.resize(image, height=500)
 
-    gray = cv2.cvtColor(img, cv2.COLOR_BGR2GRAY)
-    blur = cv2.GaussianBlur(gray, (5,5), 0)
-    edged = cv2.Canny(blur, 50, 150)
+    # 原代码：灰度化→高斯模糊→Canny边缘检测
+    gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
+    gray = cv2.GaussianBlur(gray, (5, 5), 0)
+    edged = cv2.Canny(gray, 75, 200)
 
-    contours = cv2.findContours(edged.copy(), cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)[0]
-    contours = sorted(contours, key=cv2.contourArea, reverse=True)[:5]
+    # 原代码：找轮廓→排序→多边形逼近找4个角点
+    cnts = cv2.findContours(edged.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
+    cnts = imutils.grab_contours(cnts)
+    cnts = sorted(cnts, key=cv2.contourArea, reverse=True)[:5]
+
     screenCnt = None
-
-    for c in contours:
+    for c in cnts:
         peri = cv2.arcLength(c, True)
-        approx = cv2.approxPolyDP(c, 0.02*peri, True)
+        approx = cv2.approxPolyDP(c, 0.02 * peri, True)
         if len(approx) == 4:
             screenCnt = approx
             break
 
+    # 原代码：透视变换→局部阈值二值化→生成扫描件
     if screenCnt is not None:
-        warped = four_point_transform(img, screenCnt.reshape(4,2))
-    else:
-        warped = img
+        warped = four_point_transform(orig, screenCnt.reshape(4, 2) * ratio)
+        warped = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
+        T = threshold_local(warped, 11, offset=10, method="gaussian")
+        warped = (warped > T).astype("uint8") * 255
+        return warped
+    return None
 
-    gray_warp = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
-    clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8,8))
-    gray_warp = clahe.apply(gray_warp)
-    thresh = cv2.adaptiveThreshold(gray_warp,255,cv2.ADAPTIVE_THRESH_GAUSSIAN_C,cv2.THRESH_BINARY,15,10)
-
-    out_path = "scan_temp.png"
-    cv2.imwrite(out_path, thresh)
-    return out_path
-
-# 导出PDF
-def export_pdf(page_list, pdf_name="扫描文档.pdf"):
-    if not page_list: return False
-    pdf = FPDF()
-    for img in page_list:
-        pdf.add_page()
-        pdf.image(img, x=10, y=10, w=190, keep_aspect_ratio=True)
-    pdf.output(pdf_name)
-    return True
-
-# 手机APP主界面
-class ScanApp(App):
+# ====================== 安卓APP界面（仅加了外壳，不影响核心逻辑） ======================
+class ScannerApp(App):
     def build(self):
-        self.pages = []
-        self.current_img = "temp.jpg"
+        self.current_image = None
+        self.scan_result = None
+        self.title = "文档扫描仪"
 
-        root = BoxLayout(orientation='vertical', padding=8, spacing=8)
+        # 主布局
+        layout = BoxLayout(orientation='vertical', padding=15, spacing=15)
 
-        self.preview = Image(size_hint=(1, 0.6))
-        root.add_widget(self.preview)
+        # 图片显示区域
+        self.img_display = Image(size_hint=(1, 0.7), allow_stretch=True, keep_ratio=True)
+        layout.add_widget(self.img_display)
 
-        btn_layout = BoxLayout(size_hint=(1, 0.15), spacing=5)
-        self.btn_camera = Button(text="相机拍照", background_color=(0.2,0.6,1,1))
-        self.btn_album = Button(text="相册选择", background_color=(0.3,0.7,0.3,1))
-        self.btn_add = Button(text="添加页面", background_color=(1,0.6,0,1))
-        self.btn_export = Button(text="导出PDF", background_color=(1,0.2,0.2,1))
+        # 按钮区域
+        btn_layout = BoxLayout(orientation='horizontal', size_hint=(1, 0.15), spacing=10)
 
-        self.btn_camera.bind(on_press=self.take_photo)
-        self.btn_album.bind(on_press=self.open_album)
-        self.btn_add.bind(on_press=self.add_page)
-        self.btn_export.bind(on_press=self.do_export)
+        # 拍照按钮
+        btn_camera = Button(text="拍照扫描", font_size=18)
+        btn_camera.bind(on_press=self.take_photo)
+        btn_layout.add_widget(btn_camera)
 
-        btn_layout.add_widget(self.btn_camera)
-        btn_layout.add_widget(self.btn_album)
-        btn_layout.add_widget(self.btn_add)
-        btn_layout.add_widget(self.btn_export)
-        root.add_widget(btn_layout)
+        # 从相册选择按钮
+        btn_album = Button(text="相册选图", font_size=18)
+        btn_album.bind(on_press=self.choose_from_album)
+        btn_layout.add_widget(btn_album)
 
-        return root
+        # 保存按钮
+        btn_save = Button(text="保存扫描件", font_size=18)
+        btn_save.bind(on_press=self.save_scan)
+        btn_layout.add_widget(btn_save)
 
-    # 相机拍照
-    def take_photo(self, *args):
-        from android.permissions import request_permissions, Permission
-        request_permissions([Permission.CAMERA, Permission.WRITE_EXTERNAL_STORAGE])
-        
-        layout = BoxLayout(orientation='vertical')
-        self.cam_preview = Image(size_hint=(1, 0.9))
-        layout.add_widget(self.cam_preview)
-        
-        def capture():
-            self.cam.export_to_png(self.current_img)
-            self.process_and_show()
-            popup.dismiss()
-        
-        self.cam = Camera(resolution=(1280,720), play=True)
-        self.cam.bind(on_texture=lambda: setattr(self.cam_preview, 'texture', self.cam.texture))
-        btn = Button(text="拍照", size_hint=(1, 0.1), on_press=lambda _: capture())
-        layout.add_widget(btn)
+        layout.add_widget(btn_layout)
+        return layout
 
-        popup = Popup(title="拍照", content=layout, size_hint=(0.9, 0.9))
-        popup.open()
+    # 拍照功能
+    def take_photo(self, instance):
+        # 安卓拍照路径
+        save_path = os.path.join(self.user_data_dir, "temp_photo.jpg")
+        camera.take_picture(filename=save_path, on_complete=self.on_photo_captured)
 
-    # 相册选图
-    def open_album(self, *args):
-        from android.permissions import request_permissions, Permission
-        request_permissions([Permission.READ_EXTERNAL_STORAGE, Permission.WRITE_EXTERNAL_STORAGE])
-        
-        layout = BoxLayout(orientation='vertical')
-        chooser = FileChooserListView(filters=['*.png','*.jpg','*.jpeg'])
-        layout.add_widget(chooser)
-        
-        def select():
-            if chooser.selection:
-                self.current_img = chooser.selection[0]
-                self.process_and_show()
-                popup.dismiss()
-        
-        btn = Button(text="确定", size_hint=(1, 0.1), on_press=lambda _: select())
-        layout.add_widget(btn)
+    # 拍照完成回调
+    def on_photo_captured(self, path):
+        if path and os.path.exists(path):
+            self.current_image = path
+            # 后台处理扫描，避免界面卡顿
+            import threading
+            threading.Thread(target=self.process_scan_thread, args=(path,)).start()
 
-        popup = Popup(title="选择图片", content=layout, size_hint=(0.9, 0.9))
-        popup.open()
+    # 从相册选择图片
+    def choose_from_album(self, instance):
+        filechooser.open_file(on_selection=self.on_file_selected)
 
-    # 扫描处理
-    def process_and_show(self):
-        result = scan_image(self.current_img)
-        if result:
-            self.show_img(result, self.preview)
+    def on_file_selected(self, selection):
+        if selection:
+            self.current_image = selection[0]
+            import threading
+            threading.Thread(target=self.process_scan_thread, args=(selection[0],)).start()
 
-    # 添加多页
-    def add_page(self, *args):
-        if os.path.exists("scan_temp.png"):
-            page = f"page_{len(self.pages)+1}.png"
-            os.rename("scan_temp.png", page)
-            self.pages.append(page)
-            print(f"✅ 已添加第{len(self.pages)}页")
+    # 后台扫描处理线程
+    def process_scan_thread(self, image_path):
+        result = scan_document(image_path)
+        if result is not None:
+            self.scan_result = result
+            # 主线程更新UI
+            self.update_display(result)
 
-    # 导出PDF
-    def do_export(self, *args):
-        if export_pdf(self.pages):
-            print("📄 PDF导出成功！")
+    # 更新界面显示
+    @mainthread
+    def update_display(self, img):
+        # 适配Kivy的纹理显示
+        img_rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
+        img_flip = cv2.flip(img_rgb, 0)
+        buf = img_flip.tobytes()
+        texture = Texture.create(size=(img.shape[1], img.shape[0]), colorfmt='rgb')
+        texture.blit_buffer(buf, colorfmt='rgb', bufferfmt='ubyte')
+        self.img_display.texture = texture
+
+    # 保存扫描件到相册
+    @mainthread
+    def save_scan(self, instance):
+        if self.scan_result is None:
+            return
+        # 安卓保存到DCIM目录，相册可见
+        if platform == "android":
+            from androidstorage4kivy import SharedStorage
+            ss = SharedStorage()
+            filename = f"scan_{datetime.now().strftime('%Y%m%d%H%M%S')}.jpg"
+            temp_path = os.path.join(self.user_data_dir, filename)
+            cv2.imwrite(temp_path, self.scan_result)
+            ss.copy_to_shared(temp_path, collection=ss.COLLECTION_PICTURES)
+            os.remove(temp_path)
         else:
-            print("❌ 请先添加扫描页")
-
-    # 显示图片
-    def show_img(self, path, widget):
-        img = PILImage.open(path).convert("RGBA")
-        data = img.tobytes()
-        tex = Texture.create(size=img.size, colorfmt='rgba')
-        tex.blit_buffer(data, colorfmt='rgba', bufferfmt='ubyte')
-        tex.flip_vertical()
-        widget.texture = tex
+            # 电脑测试用
+            save_dir = os.path.join(os.path.expanduser("~"), "Pictures", "DocumentScanner")
+            os.makedirs(save_dir, exist_ok=True)
+            filename = f"scan_{datetime.now().strftime('%Y%m%d%H%M%S')}.jpg"
+            save_path = os.path.join(save_dir, filename)
+            cv2.imwrite(save_path, self.scan_result)
+        print("扫描件保存成功！")
 
 if __name__ == "__main__":
-    ScanApp().run()
+    ScannerApp().run()
