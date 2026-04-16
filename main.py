@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-# 完全基于你原有的OpenCV文档扫描代码改造的安卓APP
+# 文档扫描仪安卓APP (完全基于你原OpenCV代码改造)
 from kivy.app import App
 from kivy.uix.boxlayout import BoxLayout
 from kivy.uix.button import Button
@@ -14,9 +14,9 @@ import imutils
 import os
 from datetime import datetime
 from skimage.filters import threshold_local
-from plyer import camera, filechooser
+from plyer import camera
 
-# ====================== 完全保留你原代码的核心透视变换函数 ======================
+# ================= 完全保留你原代码的核心函数 =================
 def order_points(pts):
     rect = np.zeros((4, 2), dtype="float32")
     s = pts.sum(axis=1)
@@ -45,9 +45,8 @@ def four_point_transform(image, pts):
     warped = cv2.warpPerspective(image, M, (maxWidth, maxHeight))
     return warped
 
-# ====================== 完全保留你原代码的扫描逻辑 ======================
+# ================= 完全保留你原代码的扫描逻辑 =================
 def scan_document(image_path):
-    # 完全复刻你原代码的步骤：加载→缩放→边缘检测→找轮廓→透视变换→二值化
     image = cv2.imread(image_path)
     if image is None:
         return None
@@ -56,12 +55,12 @@ def scan_document(image_path):
     orig = image.copy()
     image = imutils.resize(image, height=500)
 
-    # 原代码：灰度化→高斯模糊→Canny边缘检测
+    # 1. 边缘检测 (原代码步骤)
     gray = cv2.cvtColor(image, cv2.COLOR_BGR2GRAY)
     gray = cv2.GaussianBlur(gray, (5, 5), 0)
     edged = cv2.Canny(gray, 75, 200)
 
-    # 原代码：找轮廓→排序→多边形逼近找4个角点
+    # 2. 寻找轮廓 (原代码步骤)
     cnts = cv2.findContours(edged.copy(), cv2.RETR_LIST, cv2.CHAIN_APPROX_SIMPLE)
     cnts = imutils.grab_contours(cnts)
     cnts = sorted(cnts, key=cv2.contourArea, reverse=True)[:5]
@@ -74,7 +73,7 @@ def scan_document(image_path):
             screenCnt = approx
             break
 
-    # 原代码：透视变换→局部阈值二值化→生成扫描件
+    # 3. 透视变换与二值化 (原代码步骤)
     if screenCnt is not None:
         warped = four_point_transform(orig, screenCnt.reshape(4, 2) * ratio)
         warped = cv2.cvtColor(warped, cv2.COLOR_BGR2GRAY)
@@ -83,106 +82,76 @@ def scan_document(image_path):
         return warped
     return None
 
-# ====================== 安卓APP界面（仅加了外壳，不影响核心逻辑） ======================
+# ================= 安卓APP界面逻辑 =================
 class ScannerApp(App):
     def build(self):
-        self.current_image = None
         self.scan_result = None
         self.title = "文档扫描仪"
 
-        # 主布局
-        layout = BoxLayout(orientation='vertical', padding=15, spacing=15)
+        layout = BoxLayout(orientation='vertical', padding=10, spacing=10)
 
         # 图片显示区域
-        self.img_display = Image(size_hint=(1, 0.7), allow_stretch=True, keep_ratio=True)
-        layout.add_widget(self.img_display)
+        self.img_widget = Image(size_hint=(1, 0.7), allow_stretch=True)
+        layout.add_widget(self.img_widget)
 
         # 按钮区域
         btn_layout = BoxLayout(orientation='horizontal', size_hint=(1, 0.15), spacing=10)
-
+        
         # 拍照按钮
-        btn_camera = Button(text="拍照扫描", font_size=18)
-        btn_camera.bind(on_press=self.take_photo)
-        btn_layout.add_widget(btn_camera)
-
-        # 从相册选择按钮
-        btn_album = Button(text="相册选图", font_size=18)
-        btn_album.bind(on_press=self.choose_from_album)
-        btn_layout.add_widget(btn_album)
+        self.btn_camera = Button(text="拍照扫描", font_size=18)
+        self.btn_camera.bind(on_press=self.take_photo)
+        btn_layout.add_widget(self.btn_camera)
 
         # 保存按钮
-        btn_save = Button(text="保存扫描件", font_size=18)
-        btn_save.bind(on_press=self.save_scan)
-        btn_layout.add_widget(btn_save)
+        self.btn_save = Button(text="保存扫描件", font_size=18)
+        self.btn_save.bind(on_press=self.save_scan)
+        btn_layout.add_widget(self.btn_save)
 
         layout.add_widget(btn_layout)
         return layout
 
-    # 拍照功能
     def take_photo(self, instance):
-        # 安卓拍照路径
-        save_path = os.path.join(self.user_data_dir, "temp_photo.jpg")
-        camera.take_picture(filename=save_path, on_complete=self.on_photo_captured)
+        # 触发手机拍照
+        photo_path = os.path.join(self.user_data_dir, "temp_shot.jpg")
+        camera.take_picture(filename=photo_path, on_complete=self.on_photo_taken)
 
-    # 拍照完成回调
-    def on_photo_captured(self, path):
-        if path and os.path.exists(path):
-            self.current_image = path
-            # 后台处理扫描，避免界面卡顿
+    def on_photo_taken(self, path):
+        if path:
+            # 后台处理扫描任务，防止界面卡顿
             import threading
-            threading.Thread(target=self.process_scan_thread, args=(path,)).start()
+            threading.Thread(target=self.process_scan, args=(path,)).start()
 
-    # 从相册选择图片
-    def choose_from_album(self, instance):
-        filechooser.open_file(on_selection=self.on_file_selected)
-
-    def on_file_selected(self, selection):
-        if selection:
-            self.current_image = selection[0]
-            import threading
-            threading.Thread(target=self.process_scan_thread, args=(selection[0],)).start()
-
-    # 后台扫描处理线程
-    def process_scan_thread(self, image_path):
+    def process_scan(self, image_path):
         result = scan_document(image_path)
         if result is not None:
             self.scan_result = result
-            # 主线程更新UI
-            self.update_display(result)
+            self.update_ui(result)
 
-    # 更新界面显示
     @mainthread
-    def update_display(self, img):
-        # 适配Kivy的纹理显示
+    def update_ui(self, img):
+        # 转换图像格式供Kivy显示
         img_rgb = cv2.cvtColor(img, cv2.COLOR_GRAY2RGB)
-        img_flip = cv2.flip(img_rgb, 0)
-        buf = img_flip.tobytes()
+        buf = cv2.flip(img_rgb, 0).tobytes()
         texture = Texture.create(size=(img.shape[1], img.shape[0]), colorfmt='rgb')
         texture.blit_buffer(buf, colorfmt='rgb', bufferfmt='ubyte')
-        self.img_display.texture = texture
+        self.img_widget.texture = texture
 
-    # 保存扫描件到相册
-    @mainthread
     def save_scan(self, instance):
         if self.scan_result is None:
             return
-        # 安卓保存到DCIM目录，相册可见
+            
+        # 保存到系统相册
         if platform == "android":
-            from androidstorage4kivy import SharedStorage
-            ss = SharedStorage()
-            filename = f"scan_{datetime.now().strftime('%Y%m%d%H%M%S')}.jpg"
-            temp_path = os.path.join(self.user_data_dir, filename)
-            cv2.imwrite(temp_path, self.scan_result)
-            ss.copy_to_shared(temp_path, collection=ss.COLLECTION_PICTURES)
-            os.remove(temp_path)
-        else:
-            # 电脑测试用
-            save_dir = os.path.join(os.path.expanduser("~"), "Pictures", "DocumentScanner")
-            os.makedirs(save_dir, exist_ok=True)
-            filename = f"scan_{datetime.now().strftime('%Y%m%d%H%M%S')}.jpg"
-            save_path = os.path.join(save_dir, filename)
-            cv2.imwrite(save_path, self.scan_result)
-        print("扫描件保存成功！")
+            try:
+                from androidstorage4kivy import SharedStorage
+                ss = SharedStorage()
+                filename = f"Scan_{datetime.now().strftime('%Y%m%d_%H%M%S')}.jpg"
+                temp_path = os.path.join(self.user_data_dir, filename)
+                cv2.imwrite(temp_path, self.scan_result)
+                ss.copy_to_shared(temp_path, collection=ss.COLLECTION_PICTURES)
+                print(f"保存成功: {filename}")
+            except Exception as e:
+                print(f"保存失败: {e}")
 
 if __name__ == "__main__":
     ScannerApp().run()
