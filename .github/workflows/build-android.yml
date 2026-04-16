@@ -1,3 +1,4 @@
+# .github/workflows/build-android.yml
 name: Build Android APK
 
 on:
@@ -5,7 +6,7 @@ on:
     branches: [ main ]
   pull_request:
     branches: [ main ]
-  workflow_dispatch:  # 允许手动触发
+  workflow_dispatch:
 
 jobs:
   build:
@@ -30,22 +31,23 @@ jobs:
         
     - name: Install Android SDK
       run: |
-        # 下载SDK命令行工具
+        # 创建唯一路径
+        SDK_DIR=$PWD/android-sdk-$(date +%s)
+        mkdir -p $SDK_DIR
+        
+        # 下载 SDK 命令行工具
         wget https://dl.google.com/android/repository/commandlinetools-linux-9477386_latest.zip
         unzip commandlinetools-linux-9477386_latest.zip
-        mkdir -p $ANDROID_SDK_ROOT
-        mv cmdline-tools $ANDROID_SDK_ROOT
+        mv cmdline-tools $SDK_DIR
         
-        # 安装SDK组件
-        yes | $ANDROID_SDK_ROOT/cmdline-tools/bin/sdkmanager --sdk_root=$ANDROID_SDK_ROOT \
+        # 安装必要的 SDK 组件
+        $SDK_DIR/cmdline-tools/bin/sdkmanager --sdk_root=$SDK_DIR \
         "build-tools;34.0.0" "platform-tools" "platforms;android-34" "ndk;23.0.7599858"
         
-    - name: Set up environment variables
-      run: |
-        echo "JAVA_HOME=$(dirname $(dirname $(dirname $(readlink -f $(which java)))))" >> $GITHUB_ENV
-        echo "ANDROID_SDK_ROOT=$PWD/android-sdk" >> $GITHUB_ENV
-        echo "ANDROID_NDK_ROOT=$PWD/android-sdk/cmdline-tools/ndk/23.0.7599858" >> $GITHUB_ENV
-        echo "PATH=$PATH:$PWD/android-sdk/cmdline-tools/platform-tools" >> $GITHUB_ENV
+        # 设置环境变量
+        echo "ANDROID_SDK_ROOT=$SDK_DIR" >> $GITHUB_ENV
+        echo "ANDROID_NDK_ROOT=$SDK_DIR/cmdline-tools/ndk/23.0.7599858" >> $GITHUB_ENV
+        echo "PATH=$PATH:$SDK_DIR/cmdline-tools/platform-tools" >> $GITHUB_ENV
         
     - name: Install Python dependencies
       run: |
@@ -57,7 +59,7 @@ jobs:
       run: |
         buildozer -v android debug
         
-    - name: Upload APK artifact
+    - name: Upload APK
       if: success()
       uses: actions/upload-artifact@v4
       with:
