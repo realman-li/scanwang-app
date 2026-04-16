@@ -1,29 +1,53 @@
-[app]
-# 应用信息
-title = 文档扫描仪
-package.name = docscanner
-package.domain = org.yourname
-source.dir = .
-source.include_exts = py,png,jpg,kv,atlas
-version = 1.0
+name: Build Android APK
 
-# 依赖（完全匹配代码需要的库）
-requirements = python3, kivy==2.2.1, opencv-python==4.8.0.76, numpy==1.26.4, imutils==0.5.4, scikit-image==0.22.0, plyer==2.1.0, androidstorage4kivy==0.8.1
+on:
+  push:
+    branches: [ main ]
+  workflow_dispatch:
 
-# 安卓配置
-android.api = 33
-android.ndk = 25b
-android.sdk = 24.0.0
-android.arch = arm64-v8a
-android.permissions = CAMERA, READ_EXTERNAL_STORAGE, WRITE_EXTERNAL_STORAGE, READ_MEDIA_IMAGES
-android.ndk_path =
-android.sdk_path =
-android.gradle_dependencies = 'com.google.android.material:material:1.11.0'
-android.enable_androidx = True
-android.minapi = 26
-android.sdk = 33
-
-# 其他配置
-fullscreen = 0
-orientation = portrait
-log_level = 2
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env:
+      BUILD_TOOLS_VERSION: "33.0.0"
+      COMPILE_SDK_VERSION: "33"
+      MIN_SDK_VERSION: "21"
+      TARGET_SDK_VERSION: "33"
+      
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      
+    - name: Set up JDK 17
+      uses: actions/setup-java@v3
+      with:
+        java-version: '17'
+        distribution: 'temurin'
+        
+    - name: Install dependencies
+      run: |
+        sudo apt-get update
+        sudo apt-get install -y git zip unzip python3 python3-pip autoconf libtool pkg-config libpng-dev libjpeg-dev libtiff-dev libffi-dev
+        
+    - name: Install Buildozer
+      run: |
+        pip3 install --user Cython==0.29.33
+        pip3 install --user buildozer
+        
+    - name: Initialize Buildozer
+      run: |
+        buildozer init
+        # 复制我们自定义的buildozer.spec
+        cp buildozer.spec ./
+        
+    - name: Build APK
+      run: |
+        buildozer -v android debug
+      env:
+        DISPLAY: ':99.0'
+        
+    - name: Upload APK artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: debug-apk
+        path: bin/*.apk
