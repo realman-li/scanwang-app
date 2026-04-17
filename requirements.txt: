@@ -1,7 +1,13 @@
-kivy==2.2.1
-opencv-python-headless==4.8.1.78
+# Core dependencies
+kivy==2.3.0
+numpy==1.26.0
+opencv-python-headless==4.8.0.76
 imutils==0.5.4
-numpy==1.24.3
 scikit-image==0.21.0
 plyer==2.1.0
-androidstorage4kivy==1.1.0
+androidstorage4kivy==1.0.0
+pillow==10.0.1
+requests==2.31.0
+cython==0.29.36
+buildozer==1.5.0
+python-for-android==2023.9.17
