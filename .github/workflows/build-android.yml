@@ -31,10 +31,10 @@ jobs:
         fetch-depth: 0  # 获取完整历史记录
 
     - name: 🐳 Set up Docker Buildx
-      uses: docker/setup-buildx-action@v3
+      uses: docker/setup-buildx-action@v4
 
     - name: 🔐 Set up cache
-      uses: actions/cache@v3
+      uses: actions/cache@v4
       with:
         path: |
           ~/.gradle/caches
@@ -78,7 +78,7 @@ jobs:
         echo "Found APK: $APK_FILE"
 
     - name: 📤 Upload APK as artifact
-      uses: actions/upload-artifact@v3
+      uses: actions/upload-artifact@v4
       with:
         name: ${{ env.APK_NAME }}
         path: ${{ env.APK_FILE }}
