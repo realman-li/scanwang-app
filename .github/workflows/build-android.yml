@@ -1,31 +1,102 @@
-name: 自动打包文档扫描仪APK
+name: Build Document Scanner APK
 
 on:
   push:
+    branches: [ main, master ]
+    paths:
+      - 'main.py'
+      - 'buildozer.spec'
+      - 'Dockerfile'
+      - '.github/workflows/build-apk.yml'
+  pull_request:
     branches: [ main ]
-  workflow_dispatch: # 允许手动点击触发
+  workflow_dispatch:  # 允许手动触发
+
+env:
+  APP_NAME: "DocumentScanner"
+  PYTHON_VERSION: "3.13.9"
+  ANDROID_API: "34"
+  ANDROID_NDK_VERSION: "25b"
+  BUILD_TYPE: "debug"
 
 jobs:
-  build:
-    runs-on: ubuntu-latest
+  build-apk:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 90  # 构建可能需要较长时间
+    
     steps:
-      - name: 检出代码
-        uses: actions/checkout@v4
+    - name: 📥 Checkout repository
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0  # 获取完整历史记录
 
-      - name: 设置 JDK 17
-        uses: actions/setup-java@v4
-        with:
-          java-version: '17'
-          distribution: 'temurin'
+    - name: 🐳 Set up Docker Buildx
+      uses: docker/setup-buildx-action@v3
 
-      - name: 安装 Buildozer
-        run: pip install buildozer
+    - name: 🔐 Set up cache
+      uses: actions/cache@v3
+      with:
+        path: |
+          ~/.gradle/caches
+          ~/.gradle/wrapper
+          ~/.android/build-cache
+          ~/.buildozer
+        key: ${{ runner.os }}-build-${{ hashFiles('**/requirements.txt') }}
+        restore-keys: |
+          ${{ runner.os }}-build-
 
-      - name: 执行打包（约15分钟）
-        run: buildozer android debug
+    - name: 📦 Build Docker image
+      run: |
+        docker build -t kivy-builder:${{ env.APP_NAME }} .
+        echo "Docker image built successfully!"
 
-      - name: 上传 APK 产物
-        uses: actions/upload-artifact@v4
-        with:
-          name: 文档扫描仪-安卓APK
-          path: bin/*.apk
+    - name: 🏗️ Build APK with Docker
+      run: |
+        mkdir -p bin
+        docker run --rm \
+          -v $PWD:/app \
+          -v $HOME/.buildozer:/root/.buildozer \
+          -e PYTHON_VERSION=${{ env.PYTHON_VERSION }} \
+          -e ANDROID_API=${{ env.ANDROID_API }} \
+          -e ANDROID_NDK_VERSION=${{ env.ANDROID_NDK_VERSION }} \
+          -e P4A_COLOR=1 \
+          kivy-builder:${{ env.APP_NAME }} \
+          bash -c "buildozer android ${BUILD_TYPE}"
+      env:
+        BUILD_TYPE: ${{ env.BUILD_TYPE }}
+
+    - name: 📁 Find APK file
+      id: find-apk
+      run: |
+        APK_FILE=$(find bin -name "*.apk" -print -quit)
+        if [ -z "$APK_FILE" ]; then
+          echo "No APK file found!"
+          exit 1
+        fi
+        echo "APK_FILE=$APK_FILE" >> $GITHUB_ENV
+        echo "APK_NAME=$(basename $APK_FILE)" >> $GITHUB_ENV
+        echo "Found APK: $APK_FILE"
+
+    - name: 📤 Upload APK as artifact
+      uses: actions/upload-artifact@v3
+      with:
+        name: ${{ env.APK_NAME }}
+        path: ${{ env.APK_FILE }}
+        retention-days: 7
+
+    - name: 🌐 Upload to Release (tagged releases only)
+      if: startsWith(github.ref, 'refs/tags/')
+      uses: softprops/action-gh-release@v1
+      with:
+        files: ${{ env.APK_FILE }}
+        name: Release ${{ github.ref_name }}
+        draft: false
+        prerelease: false
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: ✅ Build Summary
+      run: |
+        echo "## 🎉 Build Successful!" >> $GITHUB_STEP_SUMMARY
+        echo "- **APK File**: `${{ env.APK_NAME }}`" >> $GITHUB_STEP_SUMMARY
+        echo "- **Size**: $(du -h ${{ env.APK_FILE }} | cut -f1)" >> $GITH
