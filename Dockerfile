@@ -1,14 +1,15 @@
-# Dockerfile for GitHub Actions
-FROM ubuntu:22.04
+# 使用官方 Python 镜像，它自带 pip
+FROM python:3.10-slim
 
-# 在 Dockerfile 中添加这一行
+# 因为你要安装 git 包，所以必须安装 git
 RUN apt-get update && apt-get install -y git
 
-# 然后再执行你的 pip install
+# 接下来是你原来的命令
 COPY requirements.txt .
 RUN pip install --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt
-    
+
+
 # 设置环境变量
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
