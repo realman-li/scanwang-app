@@ -42,8 +42,12 @@ RUN useradd -m -u 1001 builder && \
 
 USER builder
 # 创建非root用户（GitHub Actions推荐）
-RUN useradd -m -u 1001 builder && \
-    chown -R builder /app
+# 检查用户是否已存在，不存在则创建，并修正目录权限
+RUN if ! id -u builder >/dev/null 2>&1; then \
+      useradd -m -u 1001 builder; \
+    fi && \
+    mkdir -p /app && \
+    chown -R builder:builder /app
 USER builder
 
 # 设置工作目录
