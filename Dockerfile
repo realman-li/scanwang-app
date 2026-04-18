@@ -1,6 +1,14 @@
 # Dockerfile for GitHub Actions
 FROM ubuntu:22.04
 
+# 在 Dockerfile 中添加这一行
+RUN apt-get update && apt-get install -y git
+
+# 然后再执行你的 pip install
+COPY requirements.txt .
+RUN pip install --upgrade pip setuptools wheel && \
+    pip install --no-cache-dir -r requirements.txt
+    
 # 设置环境变量
 ENV DEBIAN_FRONTEND=noninteractive \
     PYTHONUNBUFFERED=1 \
