@@ -1,10 +1,11 @@
-# 使用官方 Python 镜像，它自带 pip
 FROM python:3.10-slim
 
-# 因为你要安装 git 包，所以必须安装 git
-RUN apt-get update && apt-get install -y git
+# --- 在这里添加安装 Git 的命令 ---
+# 更新源并安装 git，然后清理缓存以减小体积
+RUN apt-get update && apt-get install -y git && rm -rf /var/lib/apt/lists/*
 
-# 接下来是你原来的命令
+# ---------------------------------
+
 COPY requirements.txt .
 RUN pip install --upgrade pip setuptools wheel && \
     pip install --no-cache-dir -r requirements.txt
