@@ -5,7 +5,7 @@ opencv-python-headless==4.8.0.76
 imutils==0.5.4
 scikit-image==0.21.0
 plyer==2.1.0
-androidstorage4kivy==1.0.0
+git+https://github.com/username/androidstorage4kivy.git@v1.0.0
 pillow==10.0.1
 requests==2.31.0
 cython==0.29.36
