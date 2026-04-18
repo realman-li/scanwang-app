@@ -35,6 +35,12 @@ RUN apt-get update && apt-get install -y --no-install-recommends \
     && apt-get clean \
     && rm -rf /var/lib/apt/lists/*
 
+# 创建非root用户
+RUN useradd -m -u 1001 builder && \
+    mkdir -p /app && \
+    chown -R builder:builder /app
+
+USER builder
 # 创建非root用户（GitHub Actions推荐）
 RUN useradd -m -u 1001 builder && \
     chown -R builder /app
