@@ -25,8 +25,7 @@ RUN apt-get update && \
 COPY requirements.txt .
 
 RUN pip install --upgrade pip setuptools wheel && \
-    pip install --no-cache-dir -r requirements.txt
-
+    pip install --no-cache-dir -r requirements.txt -i https://pypi.tuna.tsinghua.edu.cn/simple
 # 5. 复制项目代码
 COPY . .
 
